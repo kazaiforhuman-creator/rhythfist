@@ -125,6 +125,15 @@ input[type=range]{accent-color:var(--amber);width:170px;max-width:100%}
 .bk.scale{background:#4a3517}
 .wk.tonic,.bk.tonic{background:var(--amber);color:#1c130a}
 .wk.press,.bk.press{background:var(--wine-hi)!important;color:#fff}
+.wk.chord,.bk.chord{background:var(--wine-hi);color:#fff;box-shadow:inset 0 -6px 0 rgba(0,0,0,.25),0 0 16px rgba(210,58,82,.55)}
+.kb .badge{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:24px;height:24px;border-radius:50%;background:var(--amber);color:#1c130a;font:700 13px/24px var(--body);text-align:center}
+.bk .badge{top:6px;width:20px;height:20px;font-size:11px;line-height:20px}
+.kbchord{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;min-height:2.4em}
+.kbchord .cn{font-family:var(--display);font-size:34px;line-height:1;color:var(--fg)}
+.kbchord .cs{font-weight:700;color:var(--amber)}
+.kbchord .ck{font-family:var(--mono);font-size:14px;color:var(--muted)}
+.card{cursor:pointer}
+.card:hover{border-color:var(--amber-dim)}
 .kb .solf{font-family:var(--body);font-weight:900;font-size:12px}
 .kbbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}
 .kbbar output{font-family:var(--mono);color:var(--amber)}
@@ -198,6 +207,18 @@ pre.memo{margin:0;background:var(--panel-2);border:1px solid var(--line);border-
     <div class="loopinfo" id="loopinfo"></div>
   </section>
 
+  <section class="panel" aria-label="音さがし鍵盤">
+    <h2>KEYS　鍵盤</h2>
+    <div class="kbchord" id="kbchord" role="status"></div>
+    <p class="hint">赤く光る鍵盤＝今のコードを押さえる場所（①が根音＝コードの名前の音）。上のカードを押すとそのコードが光って鳴る。PLAY 中は鳴っているコードに合わせて動く。<br>鍵盤を押すとその音が鳴る。歌った音を探して「この音をドにする」でキーが決まる。黄色＝今のキーのド、薄い黄色＝そのキーで使う7音。</p>
+    <div class="kbbar">
+      <span>押した音：<output id="lastnote">—</output></span>
+      <button class="btn" type="button" id="setkey" disabled>この音をドにする</button>
+      <button class="btn" type="button" id="playdo">今のキーのドを鳴らす</button>
+    </div>
+    <div class="kbwrap"><div class="kb" id="kb"></div></div>
+  </section>
+
   <div class="two">
     <section class="panel" aria-label="パート">
       <h2>PARTS　パート</h2>
@@ -256,16 +277,6 @@ pre.memo{margin:0;background:var(--panel-2);border:1px solid var(--line);border-
     </section>
   </div>
 
-  <section class="panel" aria-label="音さがし鍵盤">
-    <h2>KEYS　音さがし鍵盤</h2>
-    <p class="hint">押すと鳴る。歌った音と同じ高さを探して「この音をドにする」でキーが決まる。黄色＝今のキーのド、薄い黄色＝そのキーで使う7音。</p>
-    <div class="kbbar">
-      <span>押した音：<output id="lastnote">—</output></span>
-      <button class="btn" type="button" id="setkey" disabled>この音をドにする</button>
-      <button class="btn" type="button" id="playdo">今のキーのドを鳴らす</button>
-    </div>
-    <div class="kbwrap"><div class="kb" id="kb"></div></div>
-  </section>
 </div>
 
 <script>
@@ -423,6 +434,26 @@ pre.memo{margin:0;background:var(--panel-2);border:1px solid var(--line);border-
       el.innerHTML = `${solf}<span>${noteLabel(+m,k.f)}</span>`;
     }
   }
+  // 今のコードを鍵盤に光らせる
+  let shownChord = 0;
+  const ROLE = ['①','②','③','④'];
+  function showChord(ci){
+    kb.querySelectorAll('.chord').forEach(el => el.classList.remove('chord'));
+    kb.querySelectorAll('.badge').forEach(el => el.remove());
+    const c = state.chords[ci];
+    if (!c){ $('kbchord').textContent = ''; return; }
+    shownChord = ci;
+    c.triad.forEach((m,i) => { const el = keyEls[m]; if (!el) return; el.classList.add('chord'); const b = document.createElement('span'); b.className='badge'; b.textContent = ROLE[i] || ''; el.appendChild(b); });
+    $('kbchord').innerHTML = '<span class="cn"></span><span class="cs"></span><span class="ck"></span>';
+    $('kbchord').querySelector('.cn').textContent = c.name;
+    $('kbchord').querySelector('.cs').textContent = c.solf;
+    $('kbchord').querySelector('.ck').textContent = '押さえる鍵盤：' + c.triad.map(m=>noteLabel(m,c.flat)).join('・');
+  }
+  $('cards').addEventListener('click', e => {
+    const card = e.target.closest('.card'); if (!card) return;
+    const ci = +card.dataset.i; showChord(ci);
+    if (!playing){ ensureCtx(); state.chords[ci].triad.forEach(m => pianoNote(ctx.currentTime, m, 1.6, 0.5)); }
+  });
   let lastPressed = null;
   kb.addEventListener('pointerdown', e => {
     const t = e.target.closest('[data-m]'); if (!t) return;
@@ -439,7 +470,7 @@ pre.memo{margin:0;background:var(--panel-2);border:1px solid var(--line);border-
     keySel.value = state.key; $('bpm').value = state.bpm; $('bpmval').textContent = state.bpm;
     $('len').value = state.spc; $('countin').value = state.countIn; $('prog').value = state.prog;
     presetsEl.querySelectorAll('.chip').forEach(b => b.classList.toggle('sel', b.dataset.p === state.prog.trim().replace(/\s+/g,' ')));
-    buildChords(); renderCards(); renderMemo(); renderKb(); save();
+    buildChords(); renderCards(); renderMemo(); renderKb(); showChord(state.chords[shownChord] ? shownChord : 0); save();
   }
   keySel.addEventListener('change', () => { state.key = +keySel.value; refresh(); });
   $('bpm').addEventListener('input', e => { state.bpm = +e.target.value; $('bpmval').textContent = state.bpm; renderCards(); renderMemo(); save(); });
@@ -606,7 +637,7 @@ pre.memo{margin:0;background:var(--panel-2);border:1px solid var(--line);border-
     while (queue.length && queue[0].t <= now){ cur = queue.shift(); }
     if (cur){
       if (cur.b !== lastB){ [...stepsEl.children].forEach((el,i)=>el.classList.toggle('on', i===cur.b)); lastB = cur.b; $('jewel').classList.toggle('on', cur.b%4===0); }
-      if (cur.c !== lastC){ document.querySelectorAll('.card').forEach(el => el.classList.toggle('now', +el.dataset.i === cur.c)); lastC = cur.c; }
+      if (cur.c !== lastC){ document.querySelectorAll('.card').forEach(el => el.classList.toggle('now', +el.dataset.i === cur.c)); lastC = cur.c; if (cur.c >= 0) showChord(cur.c); }
     }
     requestAnimationFrame(draw);
   }
