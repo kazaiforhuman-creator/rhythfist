@@ -108,6 +108,11 @@ input[type=range]{accent-color:var(--accent2);width:170px;max-width:100%}
 .strip .raw{font-size:10px;color:var(--accent2);font-weight:800;min-height:1em}
 
 /* 進行 */
+.proghead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--ink);padding:5px 14px;cursor:pointer;font:inherit;font-size:13px;font-weight:700;letter-spacing:.06em}
+.seg button+button{border-left:1px solid var(--line)}
+.seg button.on{background:var(--accent2);color:var(--onaccent2)}
 .presets{display:flex;flex-direction:column;gap:8px}
 .pgroup{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pgroup .glabel{font-family:var(--body);font-size:12px;font-weight:800;letter-spacing:.12em;color:var(--accent2);min-width:6.5em}
@@ -238,7 +243,10 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   </section>
 
   <section class="panel" aria-label="進行">
-    <h2>Progression<small>進行</small></h2>
+    <div class="proghead">
+      <h2>Progression<small>進行</small></h2>
+      <div class="seg" id="bars" role="group" aria-label="進行の長さ"><button type="button" data-v="4">4小節</button><button type="button" data-v="8">8小節</button></div>
+    </div>
     <div class="presets" id="presets"></div>
     <div class="progrow">
       <div class="field">
@@ -347,15 +355,28 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     '7':{iv:[0,4,7,10],s:'7'}, 'm7':{iv:[0,3,7,10],s:'m7'}, 'M7':{iv:[0,4,7,11],s:'M7'},
     'sus4':{iv:[0,5,7],s:'sus4'}, 'dim':{iv:[0,3,6],s:'dim'}
   };
+  // [名前, 4小節版, 8小節版]。8小節版は後半を「家に帰る／次へ続く」形に変えてある（1コード＝1小節のとき）
   const PRESET_GROUPS = [
-    ['定番', [['王道進行','4 5 3m 6m'],['王道（3を明るく）','4 5 37 6m'],['小室進行','6m 4 5 1'],['カノン進行','1 5 6m 3m 4 1 4 5'],
-      ['カノンの変形','1 5 6m 3m 4 1 2m 5'],['ポップパンク','1 5 6m 4'],['暗い入り方','6m 4 1 5'],['循環','1 6m 2m 5'],['逆循環','2m 5 1 6m'],['50年代','1 6m 4 5']]],
-    ['ロック', [['ロックンロール','1 4 1 5'],['スリーコード','1 4 5 4'],['乾いたロック','1 ♭7 4 1'],['ミクソリディアン','1 ♭7 4 4'],
-      ['パワーポップ','1 4 6m 5'],['ブルース風','17 47 17 57'],['♭3で殴る','1 ♭3 4 1'],['マイナーで突っ走る','6m 4 5 5']]],
-    ['盛り上げ', [['駆け上がり','4 5 6m 5'],['サス4で溜める','1 4 5sus4 5'],['転調っぽく上がる','4 5 ♭6 ♭7 1'],['大団円','♭6 ♭7 1 1'],['2を明るく','1 27 4 1']]],
-    ['切ない', [['サブドミナントマイナー','1 4 4m 1'],['Creep進行','1 3M 4 4m'],['3を明るく','1 37 6m 4'],['下りて溜める','4 3m 2m 5'],['ため息','4 4m 1 6m']]],
-    ['マイナーの家', [['アンダルシア','6m 5 4 37'],['マイナーの行き来','6m 4 5 6m'],['マイナーの締め','6m 2m 37 6m'],['暗く押す','6m 4 37 6m']]],
-    ['おしゃれ', [['丸サ進行','4M7 37 6m7 5m 17'],['ツーファイブ','2m7 57 1M7 6m7'],['ふわっと','1M7 4M7 1M7 4M7'],['シティポップ','4M7 3m7 2m7 1M7']]]
+    ['定番', [
+      ['王道進行','4 5 3m 6m','4 5 3m 6m 4 5 1 1'], ['王道（3を明るく）','4 5 37 6m','4 5 37 6m 2m 5 1 1'], ['小室進行','6m 4 5 1','6m 4 5 1 6m 4 5sus4 5'],
+      ['カノン進行','1 5 6m 3m','1 5 6m 3m 4 1 4 5'], ['カノンの変形','1 5 6m 3m','1 5 6m 3m 4 1 2m 5'], ['ポップパンク','1 5 6m 4','1 5 6m 4 1 5 4 5'],
+      ['暗い入り方','6m 4 1 5','6m 4 1 5 6m 4 5 5'], ['循環','1 6m 2m 5','1 6m 2m 5 3m 6m 2m 5'], ['逆循環','2m 5 1 6m','2m 5 1 6m 2m 5 1 1'], ['50年代','1 6m 4 5','1 6m 4 5 4 5 1 1']]],
+    ['ロック', [
+      ['ロックンロール','1 4 1 5','1 1 4 1 5 4 1 5'], ['スリーコード','1 4 5 4','1 4 5 4 1 4 5 5'], ['乾いたロック','1 ♭7 4 1','1 ♭7 4 1 1 ♭7 4 5'],
+      ['ミクソリディアン','1 ♭7 4 4','1 ♭7 4 4 1 ♭7 4 1'], ['パワーポップ','1 4 6m 5','1 4 6m 5 1 4 5 5'], ['ブルース風','17 47 17 57','17 47 17 17 47 47 17 57'],
+      ['♭3で殴る','1 ♭3 4 1','1 ♭3 4 1 1 ♭3 4 5'], ['マイナーで突っ走る','6m 4 5 5','6m 4 5 5 6m 4 37 37']]],
+    ['盛り上げ', [
+      ['駆け上がり','4 5 6m 5','4 5 3m 6m 2m 3m 4 5'], ['サス4で溜める','1 4 5sus4 5','1 4 1 4 2m 4 5sus4 5'], ['転調っぽく上がる','4 5 ♭6 ♭7','4 5 3m 6m 4 5 ♭6 ♭7'],
+      ['大団円','♭6 ♭7 1 1','4 5 3m 6m ♭6 ♭7 1 1'], ['2を明るく','1 27 4 1','1 27 4 1 1 27 4 5']]],
+    ['切ない', [
+      ['サブドミナントマイナー','1 4 4m 1','1 4 4m 1 1 4 4m 5'], ['Creep進行','1 3M 4 4m','1 3M 4 4m 1 3M 4 4m'], ['3を明るく','1 37 6m 4','1 37 6m 4 1 37 4 5'],
+      ['下りて溜める','4 3m 2m 5','4 3m 2m 5 4 3m 2m 5sus4'], ['ため息','4 4m 1 6m','4 4m 1 6m 2m 5 1 1']]],
+    ['マイナーの家', [
+      ['アンダルシア','6m 5 4 37','6m 5 4 37 6m 5 4 37'], ['マイナーの行き来','6m 4 5 6m','6m 4 5 6m 6m 4 37 6m'], ['マイナーの締め','6m 2m 37 6m','6m 2m 37 6m 4 2m 37 37'],
+      ['暗く押す','6m 4 37 6m','6m 4 37 6m 6m 4 37 37']]],
+    ['おしゃれ', [
+      ['丸サ進行','4M7 37 6m7 5m','4M7 37 6m7 5m 4M7 37 6m7 17'], ['ツーファイブ','2m7 57 1M7 6m7','2m7 57 1M7 6m7 2m7 57 1M7 1M7'],
+      ['ふわっと','1M7 4M7 1M7 4M7','1M7 4M7 3m7 6m7 2m7 57 1M7 1M7'], ['シティポップ','4M7 3m7 2m7 1M7','4M7 3m7 2m7 1M7 4M7 3m7 2m7 57']]]
   ];
   const nameOf = (pc, flat) => (flat ? FLAT : SHARP)[((pc%12)+12)%12];
   const gerOf = (pc, flat) => (flat ? GER_F : GER_S)[((pc%12)+12)%12];
@@ -364,12 +385,12 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
 
   // ---------- 状態 ----------
   const $ = id => document.getElementById(id);
-  const state = { key:9, bpm:170, spc:16, countIn:1, prog:'4 5 3m 6m', theme:'bourbon', chords:[] };
+  const state = { key:9, bpm:170, spc:16, countIn:1, prog:'4 5 3m 6m', theme:'bourbon', bars:4, chords:[] };
   try {
     const s = JSON.parse(localStorage.getItem('rhythfist-settings') || 'null');
-    if (s) Object.assign(state, {key:s.key??state.key, bpm:s.bpm??state.bpm, spc:s.spc??state.spc, countIn:s.countIn??state.countIn, prog:s.prog??state.prog, theme:s.theme??state.theme});
+    if (s) Object.assign(state, {key:s.key??state.key, bpm:s.bpm??state.bpm, spc:s.spc??state.spc, countIn:s.countIn??state.countIn, prog:s.prog??state.prog, theme:s.theme??state.theme, bars:s.bars??state.bars});
   } catch(e) {}
-  const save = () => { try { localStorage.setItem('rhythfist-settings', JSON.stringify({key:state.key,bpm:state.bpm,spc:state.spc,countIn:state.countIn,prog:state.prog,theme:state.theme})); } catch(e) {} };
+  const save = () => { try { localStorage.setItem('rhythfist-settings', JSON.stringify({key:state.key,bpm:state.bpm,spc:state.spc,countIn:state.countIn,prog:state.prog,theme:state.theme,bars:state.bars})); } catch(e) {} };
 
   // ---------- 配色（LyriCore・LyriFit と同じ） ----------
   const THEMES = {
@@ -441,9 +462,21 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   PRESET_GROUPS.forEach(([g, list]) => {
     const row = document.createElement('div'); row.className = 'pgroup';
     const lb = document.createElement('span'); lb.className = 'glabel'; lb.textContent = g; row.appendChild(lb);
-    list.forEach(([n,p]) => { const b = document.createElement('button'); b.type='button'; b.className='chip'; b.textContent=n; b.dataset.p=p; b.title=p; b.addEventListener('click',()=>{ $('prog').value=p; state.prog=p; refresh(); }); row.appendChild(b); });
+    list.forEach(([n,p4,p8]) => { const b = document.createElement('button'); b.type='button'; b.className='chip'; b.textContent=n; b.dataset.p4=p4; b.dataset.p8=p8; b.addEventListener('click',()=>{ const p = b.dataset.p; $('prog').value=p; state.prog=p; refresh(); }); row.appendChild(b); });
     presetsEl.appendChild(row);
   });
+  const norm = t => t.trim().replace(/\s+/g,' ');
+  function setBars(n){
+    const cur = norm(state.prog);
+    // 今の進行がどれかのボタンの4/8小節版なら、同じボタンの新しい長さの版に入れ替える
+    const hit = [...presetsEl.querySelectorAll('.chip')].find(b => b.dataset.p4 === cur || b.dataset.p8 === cur);
+    state.bars = n;
+    presetsEl.querySelectorAll('.chip').forEach(b => { b.dataset.p = n === 8 ? b.dataset.p8 : b.dataset.p4; b.title = b.dataset.p; });
+    [...$('bars').children].forEach(b => b.classList.toggle('on', +b.dataset.v === n));
+    if (hit){ state.prog = hit.dataset.p; }
+    refresh();
+  }
+  $('bars').addEventListener('click', e => { const b = e.target.closest('button'); if (b) setBars(+b.dataset.v); });
 
   function renderCards(){
     const cards = $('cards'); cards.textContent = '';
@@ -630,7 +663,7 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   function refresh(){
     keySel.value = state.key; $('bpm').value = state.bpm; $('bpmval').textContent = state.bpm;
     $('len').value = state.spc; $('countin').value = state.countIn; $('prog').value = state.prog;
-    presetsEl.querySelectorAll('.chip').forEach(b => b.classList.toggle('sel', b.dataset.p === state.prog.trim().replace(/\s+/g,' ')));
+    presetsEl.querySelectorAll('.chip').forEach(b => b.classList.toggle('sel', b.dataset.p === norm(state.prog)));
     if (!fromMixer) syncMixer();
     buildChords(); renderCards(); renderMemo(); renderKb(); showChord(state.chords[shownChord] ? shownChord : 0); renderMixer(); save();
   }
@@ -820,6 +853,8 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   document.addEventListener('keydown', e => { if (e.code==='Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)){ e.preventDefault(); playing ? stop() : start(); } });
 
   applyTheme(state.theme); $('theme').value = state.theme;
+  presetsEl.querySelectorAll('.chip').forEach(b => { b.dataset.p = state.bars === 8 ? b.dataset.p8 : b.dataset.p4; b.title = b.dataset.p; });
+  [...$('bars').children].forEach(b => b.classList.toggle('on', +b.dataset.v === state.bars));
   $('theme').addEventListener('change', e => { applyTheme(e.target.value); save(); });
   refresh();
 })();
