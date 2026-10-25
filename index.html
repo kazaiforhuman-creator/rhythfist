@@ -178,6 +178,8 @@ input[type=range]{accent-color:var(--accent2);width:170px;max-width:100%}
 .btn:disabled{opacity:.4;cursor:default}
 
 /* メモ */
+.midibox{display:flex;flex-direction:column;gap:6px;padding-top:10px;border-top:3px double var(--line)}
+.midibox select{font-family:var(--body);font-size:14px}
 pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radius:2px;padding:12px 14px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
 .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 .small{font-size:12px;color:var(--muted)}
@@ -327,6 +329,15 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
         <span class="small" id="copied" role="status"></span>
       </div>
       <p class="small" style="margin:0">音の高さの数字は「真ん中のド＝C4」。BandLab の鍵盤では同じ音が C3 と表示されることがある。</p>
+      <div class="midibox">
+        <div class="row">
+          <label for="midiLoops" class="small">長さ</label>
+          <select id="midiLoops"><option value="1">1周</option><option value="2" selected>2周</option><option value="4">4周</option><option value="8">8周</option></select>
+          <button class="btn primary" type="button" id="midiBtn">MIDI を書き出す</button>
+        </div>
+        <p class="small" id="midiMsg" role="status" style="margin:0"></p>
+        <p class="small" style="margin:0">ドラム・ベース・ギター・和音が別々のトラックに入る（オンにしているパートだけ。型・フィル・BPM もそのまま）。BandLab の Studio に .mid ファイルをドラッグすると、パートごとのトラックになる。</p>
+      </div>
     </section>
   </div>
 
@@ -821,6 +832,112 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     queue.push({t, b, c:ci});
     step++;
   }
+  // ---------- MIDI 書き出し（再生と同じ組み立てを、音の代わりにノートとして並べる） ----------
+  const TPQ = 480, TPS = TPQ / 4;                 // 16分音符 = 120 tick
+  const GM = {bd:36, sn:38, hh:42, oh:46, rd:51, cr:49, t1:50, t2:47, ft:43};
+  function buildEvents(loops){
+    const ch = state.chords, spc = state.spc, loop = ch.length * spc;
+    const ev = {dr:[], ba:[], gt:[], pd:[]};
+    const add = (part, step, notes, steps, vel) => [].concat(notes).forEach(n => ev[part].push({t: Math.round(step*TPS), n, d: Math.max(30, Math.round(steps*TPS)), v: vel}));
+    const fill = $('fill-dr').value, dp = $('pat-dr').value, bp = $('pat-ba').value, gp = $('pat-gt').value;
+    for (let st = 0; st < loop * loops; st++){
+      const s = st % loop, b = s % 16, ci = Math.floor(s / spc), cs = s % spc, c = ch[ci];
+      const lastBar = loop >= 32 && s >= loop - 16;
+      let row = DRUM[dp]; if (lastBar && fill !== '0') row = FILL[fill];
+      const roll = row.sn && row.sn.filter(Boolean).length > 3 && b >= 12;
+      if (row.bd && row.bd[b]) add('dr', st, GM.bd, .5, 110);
+      if (row.sn && row.sn[b]) add('dr', st, GM.sn, .5, roll ? 92 : 108);
+      if (row.hh && row.hh[b]) add('dr', st, GM.hh, .5, b%4===0 ? 92 : 70);
+      if (row.oh && row.oh[b]) add('dr', st, GM.oh, 1, 92);
+      if (row.rd && row.rd[b]) add('dr', st, GM.rd, 1, 88);
+      if (row.cr && row.cr[b]) add('dr', st, GM.cr, 2, 104);
+      ['t1','t2','ft'].forEach(k => { if (row[k] && row[k][b]) add('dr', st, GM[k], .5, 104); });
+      if (s === 0) add('dr', st, GM.cr, 2, 100);
+      const breakBar = lastBar && fill === '3';
+      if (!(breakBar && b > 0)){
+        if (bp === 'B1' && b%2===0) add('ba', st, c.bass, 1.7, 100);
+        if (bp === 'B2' && b%2===0) add('ba', st, c.bass + ((b/2)%2 ? 12 : 0), 1.6, 100);
+        if (bp === 'B3' && cs===0) add('ba', st, c.bass, spc*.97, 100);
+      }
+      if (breakBar){ if (b===0) add('gt', st, c.power, 3.5, 104); }
+      else {
+        if (gp === 'G1' && b%2===0) add('gt', st, c.power, 1.55, b%4===0 ? 100 : 86);
+        if (gp === 'G2' && cs===0) add('gt', st, c.power, spc*.97, 100);
+        if (gp === 'G3' && (b===0||b===6||b===12)) add('gt', st, c.power, .9, 100);
+      }
+      if (cs===0 && !breakBar) add('pd', st, c.triad, spc*.98, 78);
+      if (breakBar && b===0) add('pd', st, c.triad, 3.5, 78);
+    }
+    return ev;
+  }
+  const vlq = n => { const out = [n & 0x7f]; while ((n >>= 7)) out.unshift((n & 0x7f) | 0x80); return out; };
+  const ascii = t => [...t].map(ch => ch.charCodeAt(0) < 128 ? ch.charCodeAt(0) : 63);
+  const u32 = n => [(n>>>24)&255, (n>>>16)&255, (n>>>8)&255, n&255];
+  function trackChunk(name, events, chan, program){
+    const raw = [];                                 // {t, order, bytes}
+    raw.push({t:0, o:0, b:[0xff, 0x03, ...vlq(ascii(name).length), ...ascii(name)]});
+    if (program != null) raw.push({t:0, o:1, b:[0xc0 | chan, program]});
+    events.forEach(e => {
+      raw.push({t:e.t, o:3, b:[0x90 | chan, e.n & 127, e.v & 127]});
+      raw.push({t:e.t + e.d, o:2, b:[0x80 | chan, e.n & 127, 0]});   // 同じ時刻なら止めてから鳴らす
+    });
+    raw.sort((a,b) => a.t - b.t || a.o - b.o);
+    const body = []; let last = 0;
+    raw.forEach(r => { body.push(...vlq(r.t - last), ...r.b); last = r.t; });
+    body.push(0, 0xff, 0x2f, 0);
+    return [...ascii('MTrk'), ...u32(body.length), ...body];
+  }
+  function buildMidi(loops){
+    const ev = buildEvents(loops);
+    const k = KEYS.find(k => k.pc === state.key) || KEYS[0];
+    const us = Math.round(60000000 / state.bpm);
+    const head = [0xff, 0x51, 3, (us>>16)&255, (us>>8)&255, us&255, 0, 0xff, 0x58, 4, 4, 2, 24, 8];
+    const title = `RhythFist ${k.n.replace('♯','#').replace('♭','b')} ${state.bpm}bpm`;
+    const t0 = [0, 0xff, 0x03, ...vlq(ascii(title).length), ...ascii(title), 0, ...head, 0, 0xff, 0x2f, 0];
+    const tracks = [[...ascii('MTrk'), ...u32(t0.length), ...t0]];
+    if ($('on-dr').checked) tracks.push(trackChunk('Drums', ev.dr, 9, 0));
+    if ($('on-ba').checked) tracks.push(trackChunk('Bass', ev.ba, 0, 33));
+    if ($('on-gt').checked) tracks.push(trackChunk('Guitar (power chords)', ev.gt, 1, 30));
+    if ($('on-pd').checked) tracks.push(trackChunk('Chords', ev.pd, 2, 0));
+    const hd = [...ascii('MThd'), 0,0,0,6, 0,1, (tracks.length>>8)&255, tracks.length&255, (TPQ>>8)&255, TPQ&255];
+    return new Uint8Array([].concat(hd, ...tracks));
+  }
+  // claude.ai の中では .mid をそのまま保存できないので zip に包む（無圧縮）
+  const CRC = (() => { const t = new Uint32Array(256); for (let n=0;n<256;n++){ let c=n; for (let k=0;k<8;k++) c = c&1 ? 0xedb88320 ^ (c>>>1) : c>>>1; t[n]=c>>>0; } return t; })();
+  const crc32 = d => { let c = 0xffffffff; for (let i=0;i<d.length;i++) c = CRC[(c ^ d[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  function zipOne(name, data){
+    const nm = ascii(name), crc = crc32(data), n = data.length;
+    const le16 = v => [v&255, (v>>8)&255], le32 = v => [v&255, (v>>>8)&255, (v>>>16)&255, (v>>>24)&255];
+    const local = [...le32(0x04034b50), ...le16(20), ...le16(0), ...le16(0), ...le16(0), ...le16(0x21), ...le32(crc), ...le32(n), ...le32(n), ...le16(nm.length), ...le16(0), ...nm];
+    const central = [...le32(0x02014b50), ...le16(20), ...le16(20), ...le16(0), ...le16(0), ...le16(0), ...le16(0x21), ...le32(crc), ...le32(n), ...le32(n), ...le16(nm.length), ...le16(0), ...le16(0), ...le16(0), ...le16(0), ...le32(0), ...le32(0), ...nm];
+    const end = [...le32(0x06054b50), ...le16(0), ...le16(0), ...le16(1), ...le16(1), ...le32(central.length), ...le32(local.length + n), ...le16(0)];
+    const out = new Uint8Array(local.length + n + central.length + end.length);
+    out.set(local, 0); out.set(data, local.length); out.set(central, local.length + n); out.set(end, local.length + n + central.length);
+    return out;
+  }
+  function midiName(){
+    const k = KEYS.find(k => k.pc === state.key) || KEYS[0];
+    const prog = state.chords.map(c => c.deg).join('-').replace(/♭/g,'b').replace(/[^0-9A-Za-z#\-]/g,'').slice(0, 40);
+    return `RhythFist_${k.n.replace('♯','s').replace('♭','b')}_${state.bpm}bpm_${prog || 'prog'}.mid`;
+  }
+  $('midiBtn').addEventListener('click', async () => {
+    if (!state.chords.length){ $('midiMsg').textContent = '進行が空です。番号を入れてから書き出す'; return; }
+    const loops = +$('midiLoops').value;
+    const data = buildMidi(loops), name = midiName();
+    const bars = state.chords.length * state.spc * loops / 16;
+    let dl = null;
+    try { if (window.claude && typeof window.claude.use === 'function') dl = await window.claude.use('downloads'); } catch(e) { dl = null; }
+    if (dl){
+      try { await dl.save({filename: name.replace(/\.mid$/, '.zip'), data: zipOne(name, data)}); $('midiMsg').textContent = `保存した（zip の中に ${name}。${bars}小節）。zip を開いて .mid を BandLab にドラッグ`; }
+      catch(e){ $('midiMsg').textContent = e && e.code === 'declined' ? '保存をやめた' : 'ここでは保存できない。PC 版か公開版（GitHub）から書き出す'; }
+      return;
+    }
+    const url = URL.createObjectURL(new Blob([data], {type:'audio/midi'}));
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    $('midiMsg').textContent = `書き出した：${name}（${bars}小節）。ダウンロードフォルダにある`;
+  });
+
   function scheduler(){
     while (nextTime < ctx.currentTime + 0.12){ scheduleStep(nextTime); nextTime += stepDur(); }
   }
