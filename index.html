@@ -698,8 +698,8 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   function ensureCtx(){
     if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
     ctx = new (window.AudioContext || window.webkitAudioContext)();
-    comp = ctx.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 4;
-    master = ctx.createGain(); master.gain.value = 0.85; master.connect(comp); comp.connect(ctx.destination);
+    comp = ctx.createDynamicsCompressor(); comp.threshold.value = -18; comp.knee.value = 10; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.15;
+    master = ctx.createGain(); master.gain.value = MASTER; master.connect(comp); comp.connect(ctx.destination);
     for (const p of ['dr','ba','gt','pd']) { bus[p] = ctx.createGain(); bus[p].connect(master); }
     updateVols();
     noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -713,21 +713,24 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   }
   ['dr','ba','gt','pd'].forEach(p => { $('on-'+p).addEventListener('change', updateVols); $('vol-'+p).addEventListener('input', updateVols); });
 
+  // 鳴り終わった音の部品を外す（つなぎっぱなしだと溜まって、長く流すほど重くなる）
+  const MASTER = 0.7;
+  const tidy = (src, nodes) => { src.onended = () => nodes.forEach(n => { try { n.disconnect(); } catch(e) {} }); };
   const env = (g, t, peak, a, dec) => { g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+a); g.gain.exponentialRampToValueAtTime(0.0001,t+a+dec); };
   function noise(t, dur, filterType, freq, q, peak, out){
     const s = ctx.createBufferSource(); s.buffer = noiseBuf;
     const f = ctx.createBiquadFilter(); f.type = filterType; f.frequency.value = freq; if (q) f.Q.value = q;
     const g = ctx.createGain(); env(g, t, peak, 0.002, dur);
-    s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t+dur+0.05);
+    s.connect(f); f.connect(g); g.connect(out); s.start(t); s.stop(t+dur+0.05); tidy(s, [s, f, g]);
   }
-  function kick(t,v){ const o = ctx.createOscillator(); const g = ctx.createGain(); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.12); env(g,t,1.0*v,0.002,0.32); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.4);
+  function kick(t,v){ const o = ctx.createOscillator(); const g = ctx.createGain(); o.frequency.setValueAtTime(150,t); o.frequency.exponentialRampToValueAtTime(42,t+0.12); env(g,t,1.0*v,0.002,0.32); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.4); tidy(o, [o, g]);
     noise(t,0.02,'lowpass',3000,0,0.25*v,bus.dr); }
   function snare(t,v){ noise(t,0.2,'highpass',1300,0,0.55*v,bus.dr);
-    const o = ctx.createOscillator(); o.type='triangle'; const g = ctx.createGain(); o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(160,t+0.08); env(g,t,0.45*v,0.002,0.09); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.15); }
+    const o = ctx.createOscillator(); o.type='triangle'; const g = ctx.createGain(); o.frequency.setValueAtTime(220,t); o.frequency.exponentialRampToValueAtTime(160,t+0.08); env(g,t,0.45*v,0.002,0.09); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.15); tidy(o, [o, g]); }
   const hat = (t,open,v) => noise(t, open?0.32:0.045, 'highpass', 8000, 0, (open?0.2:0.22)*v, bus.dr);
   const crash = (t,v) => noise(t, 1.5, 'highpass', 4200, 0, 0.32*v, bus.dr);
-  const ride = (t,v) => { noise(t, 0.4, 'bandpass', 6500, 0.8, 0.16*v, bus.dr); const o=ctx.createOscillator(); const g=ctx.createGain(); o.frequency.value=3100; env(g,t,0.03*v,0.002,0.3); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.35); };
-  function tom(t,f,v){ const o = ctx.createOscillator(); const g = ctx.createGain(); o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*0.62,t+0.22); env(g,t,0.7*v,0.002,0.26); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.32); noise(t,0.05,'lowpass',2500,0,0.12*v,bus.dr); }
+  const ride = (t,v) => { noise(t, 0.4, 'bandpass', 6500, 0.8, 0.16*v, bus.dr); const o=ctx.createOscillator(); const g=ctx.createGain(); o.frequency.value=3100; env(g,t,0.03*v,0.002,0.3); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.35); tidy(o, [o, g]); };
+  function tom(t,f,v){ const o = ctx.createOscillator(); const g = ctx.createGain(); o.frequency.setValueAtTime(f,t); o.frequency.exponentialRampToValueAtTime(f*0.62,t+0.22); env(g,t,0.7*v,0.002,0.26); o.connect(g); g.connect(bus.dr); o.start(t); o.stop(t+0.32); tidy(o, [o, g]); noise(t,0.05,'lowpass',2500,0,0.12*v,bus.dr); }
   function stick(t){ noise(t,0.03,'bandpass',2500,4,0.5,master); }
 
   function bassNote(t, m, dur){
@@ -738,7 +741,7 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.42,t+0.006); g.gain.setValueAtTime(0.36,end-0.02); g.gain.exponentialRampToValueAtTime(0.0001,end+0.05);
     const sg = ctx.createGain(); sg.gain.value = 0.6;
     o.connect(f); f.connect(g); sub.connect(sg); sg.connect(g); g.connect(bus.ba);
-    o.start(t); sub.start(t); o.stop(end+0.1); sub.stop(end+0.1);
+    o.start(t); sub.start(t); o.stop(end+0.1); sub.stop(end+0.1); tidy(o, [o, sub, f, sg, g]);
   }
   function guitarChord(t, ms, dur, accent){
     const pre = ctx.createGain(); pre.gain.value = 0.9;
@@ -750,7 +753,9 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     const peak = 0.16 * (accent?1.15:1);
     g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(peak,t+0.004); g.gain.exponentialRampToValueAtTime(peak*0.7,t+Math.min(dur,0.25)); g.gain.setValueAtTime(peak*0.65,end-0.015); g.gain.exponentialRampToValueAtTime(0.0001,end+0.04);
     pre.connect(ws); ws.connect(hp); hp.connect(mid); mid.connect(lp); lp.connect(g); g.connect(bus.gt);
-    ms.forEach(m => [-7,7].forEach(cents => { const o = ctx.createOscillator(); o.type='sawtooth'; o.frequency.value = hz(m); o.detune.value = cents; const og = ctx.createGain(); og.gain.value = 0.22; o.connect(og); og.connect(pre); o.start(t); o.stop(end+0.08); }));
+    const parts = [pre, ws, hp, mid, lp, g]; let last = null;
+    ms.forEach(m => [-7,7].forEach(cents => { const o = ctx.createOscillator(); o.type='sawtooth'; o.frequency.value = hz(m); o.detune.value = cents; const og = ctx.createGain(); og.gain.value = 0.22; o.connect(og); og.connect(pre); o.start(t); o.stop(end+0.08); parts.push(o, og); last = o; }));
+    if (last) tidy(last, parts);
   }
   function pianoNote(t, m, dur, vel, out){
     out = out || master;
@@ -758,7 +763,7 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     const o2 = ctx.createOscillator(); o2.type='sine'; o2.frequency.value = hz(m)*2;
     const g = ctx.createGain(); const g2 = ctx.createGain(); g2.gain.value = 0.25;
     g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.32*vel,t+0.008); g.gain.exponentialRampToValueAtTime(0.12*vel,t+0.5); g.gain.setValueAtTime(0.12*vel, t+Math.max(dur-0.08,0.5)); g.gain.exponentialRampToValueAtTime(0.0001,t+Math.max(dur,0.55)+0.15);
-    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(out); o.start(t); o2.start(t); o.stop(t+dur+0.3); o2.stop(t+dur+0.3);
+    o.connect(g); o2.connect(g2); g2.connect(g); g.connect(out); o.start(t); o2.start(t); o.stop(t+dur+0.3); o2.stop(t+dur+0.3); tidy(o, [o, o2, g, g2]);
   }
 
   // ---------- 型（16マス） ----------
@@ -939,7 +944,12 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
   });
 
   function scheduler(){
-    while (nextTime < ctx.currentTime + 0.12){ scheduleStep(nextTime); nextTime += stepDur(); }
+    // 遅れて過去になった拍は鳴らさず進める
+    while (nextTime < ctx.currentTime - 0.02){ if (countSteps > 0) countSteps--; else step++; nextTime += stepDur(); }
+    // 裏に回ると時計が1秒に1回しか来ないので、そのときは先まで予約しておく
+    const ahead = document.hidden ? 1.5 : 0.12;
+    while (nextTime < ctx.currentTime + ahead){ scheduleStep(nextTime); nextTime += stepDur(); }
+    if (queue.length > 600) queue.splice(0, queue.length - 600);
   }
   let lastB = -1, lastC = -2;
   function draw(){
@@ -964,7 +974,7 @@ pre.memo{margin:0;background:var(--bg2);border:1px solid var(--line);border-radi
     playing = false; clearInterval(timer); timer = null; queue.length = 0;
     [...stepsEl.children].forEach(el=>el.classList.remove('on')); document.querySelectorAll('.card').forEach(el=>el.classList.remove('now')); $('jewel').classList.remove('on');
     $('play').textContent = '▶ Play'; $('play').classList.remove('on'); $('play').setAttribute('aria-pressed','false');
-    if (ctx){ const g = master.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(0, ctx.currentTime); g.setValueAtTime(0.85, ctx.currentTime+0.25); }
+    if (ctx){ const g = master.gain; g.cancelScheduledValues(ctx.currentTime); g.setValueAtTime(0, ctx.currentTime); g.setValueAtTime(MASTER, ctx.currentTime+0.25); }
   }
   $('play').addEventListener('click', () => playing ? stop() : start());
   document.addEventListener('keydown', e => { if (e.code==='Space' && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement.tagName)){ e.preventDefault(); playing ? stop() : start(); } });
